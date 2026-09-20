@@ -1,0 +1,44 @@
+name: Prospeccao Novos Entrantes
+
+on:
+  schedule:
+    - cron: '0 8 10 * *'   # dia 10 de cada mes, 05h (horario de Brasilia, UTC-3)
+    - cron: '0 8 15 * *'   # tentativa de reforco no dia 15, caso a Receita tenha publicado com atraso
+  workflow_dispatch: {}     # permite rodar manualmente a qualquer momento, pela aba Actions do GitHub
+
+permissions:
+  contents: write
+
+jobs:
+  prospeccao:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: pip install requests
+
+      - name: Rodar prospeccao
+        run: python prospeccao_novos_entrantes.py
+
+      - name: Publicar CSV mais recente (URL estavel para o Claude Project ler)
+        run: |
+          mkdir -p output
+          latest=$(ls -t dados_prospeccao/candidatos_novos_entrantes_*.csv 2>/dev/null | head -n1)
+          if [ -n "$latest" ]; then
+            cp "$latest" output/latest.csv
+          else
+            echo "cnpj,razao_social,nome_fantasia,municipio,uf,data_inicio_atividade,cnae_principal,cnae_secundarias,natureza_juridica,capital_social,socios" > output/latest.csv
+          fi
+
+      - name: Commitar resultado e cache
+        run: |
+          git config user.name "prospeccao-bot"
+          git config user.email "prospeccao-bot@users.noreply.github.com"
+          git add output/latest.csv dados_prospeccao/cnpjs_ja_vistos.txt || true
+          git diff --cached --quiet || git commit -m "Atualiza candidatos - $(date +%Y-%m-%d)"
+          git push
