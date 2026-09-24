@@ -11,16 +11,22 @@ Claude Project para a Parte B (cruzamento de socios, elo em comum,
 qualificacao e redacao da abordagem).
 
 AVISO IMPORTANTE:
-Este script foi escrito a partir do layout publico e documentado dos dados
-abertos de CNPJ da Receita Federal (o mesmo usado por projetos de ETL de
-codigo aberto, como o aphonsoar/Receita_Federal_do_Brasil_-_Dados_Publicos_CNPJ
-no GitHub). Ele NAO pode ser testado ponta a ponta contra os servidores reais
-no ambiente onde foi escrito, porque esse ambiente bloqueia por politica de
-rede o acesso a arquivos.receitafederal.gov.br e dados.gov.br. Antes de
-confiar 100% na automacao:
+Em 2026 a Receita Federal migrou a hospedagem dos dados abertos de CNPJ para
+um novo sistema ("SERPRO+ - Repositorio de Arquivos da Receita Federal"),
+baseado em Nextcloud, acessivel publicamente em:
+  https://arquivos.receitafederal.gov.br/index.php/s/YggdBLfdninEJX9
+A antiga URL direta (.../dados/cnpj/dados_abertos_cnpj/AAAA-MM/Arquivo.zip)
+NAO existe mais e retorna erro 404. O layout de pastas por mes (AAAA-MM) e os
+nomes dos arquivos (Empresas0.zip, Estabelecimentos0.zip, Socios0.zip, ...)
+continuam os mesmos -- confirmado manualmente em setembro/2026 dentro da
+pasta "2026-09" desse repositorio, que contem: Cnaes.zip, Empresas0.zip a
+Empresas9.zip, Estabelecimentos0.zip em diante, etc.
 
-  1. Rode uma vez manualmente e confira se a pasta do mes (BASE_URL/AAAA-MM/)
-     realmente existe com esse nome -- a Receita pode ter mudado o padrao.
+Antes de confiar 100% na automacao:
+
+  1. Rode uma vez e confira se a pasta do mes (AAAA-MM) realmente existe com
+     esse nome dentro do link acima -- a Receita pode voltar a mudar o
+     padrao no futuro.
   2. Confirme a URL direta de download da lista de administradoras de
      beneficios da ANS (ADMINISTRADORAS_URL abaixo esta vazia de proposito).
   3. Confira se o layout de colunas (numero e ordem dos campos) ainda bate
@@ -43,10 +49,10 @@ import requests
 # Configuracao
 # ---------------------------------------------------------------------------
 
-# Padrao de URL publicamente documentado para os dados abertos de CNPJ.
-# Confirme num navegador normal (fora deste tipo de ambiente restrito) antes
-# de automatizar de vez.
-BASE_URL = "https://arquivos.receitafederal.gov.br/dados/cnpj/dados_abertos_cnpj"
+# Novo sistema de hospedagem dos dados abertos de CNPJ (SERPRO+ / Nextcloud),
+# em vigor desde 2026. O "token" abaixo identifica o link publico e permanente
+# de compartilhamento -- confirmado manualmente em setembro/2026.
+SHARE_BASE_URL = "https://arquivos.receitafederal.gov.br/index.php/s/YggdBLfdninEJX9/download"
 
 CADOP_URL = "https://dadosabertos.ans.gov.br/FTP/PDA/operadoras_de_plano_de_saude_ativas/Relatorio_cadop.csv"
 
@@ -98,6 +104,14 @@ def baixar(url, destino, tentativas=3):
                 with open(destino, "wb") as f:
                     for chunk in r.iter_content(chunk_size=1024 * 1024):
                         f.write(chunk)
+            # O Nextcloud, para um arquivo que nao existe dentro do path
+            # pedido, pode responder 200 com uma pagina de erro em HTML em
+            # vez de um 404 "limpo". Por isso validamos que o que foi
+            # baixado e mesmo um .zip valido antes de dar como sucesso.
+            if destino.suffix == ".zip" and not zipfile.is_zipfile(destino):
+                print(f"  [aviso] resposta para {url} nao e um .zip valido (provavelmente arquivo inexistente).")
+                destino.unlink(missing_ok=True)
+                return False
             return True
         except requests.RequestException as e:
             print(f"  [aviso] falha ao baixar {url}: {e} (tentativa {tentativa}/{tentativas})")
@@ -107,8 +121,12 @@ def baixar(url, destino, tentativas=3):
 def listar_partes(prefixo, pasta_mes, max_partes=12):
     """A Receita costuma dividir Empresas/Estabelecimentos/Socios em varias
     partes numeradas (0, 1, 2, ...). Tenta de 0 ate max_partes-1 e para
-    quando um numero nao existir mais (HTTP 404)."""
-    return [f"{BASE_URL}/{pasta_mes}/{prefixo}{i}.zip" for i in range(max_partes)]
+    quando um numero nao existir mais. Os arquivos ficam dentro da pasta do
+    mes (AAAA-MM) no link publico de compartilhamento (SHARE_BASE_URL)."""
+    return [
+        f"{SHARE_BASE_URL}?path=%2F{pasta_mes}&files={prefixo}{i}.zip"
+        for i in range(max_partes)
+    ]
 
 
 def ler_csv_dentro_do_zip(caminho_zip):
