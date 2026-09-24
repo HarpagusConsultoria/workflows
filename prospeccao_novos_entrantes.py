@@ -63,6 +63,17 @@ SITUACAO_ATIVA = "02"
 DATA_DIR = Path("./dados_prospeccao")
 CACHE_ARQUIVO = DATA_DIR / "cnpjs_ja_vistos.txt"
 
+# Alguns servidores do governo derrubam a conexao quando veem o User-Agent
+# padrao da biblioteca requests ("python-requests/x.x"), tratando-o como
+# bot. Um User-Agent de navegador comum resolve isso para dados abertos
+# publicos como este.
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+}
+
 
 # ---------------------------------------------------------------------------
 # Utilidades
@@ -80,7 +91,7 @@ def baixar(url, destino, tentativas=3):
     destino.parent.mkdir(parents=True, exist_ok=True)
     for tentativa in range(1, tentativas + 1):
         try:
-            with requests.get(url, stream=True, timeout=60) as r:
+            with requests.get(url, stream=True, timeout=60, headers=HEADERS) as r:
                 if r.status_code == 404:
                     return False
                 r.raise_for_status()
@@ -211,7 +222,7 @@ def completar_com_socios(candidatos, pasta_mes, tmp_dir):
 def cnpjs_ja_registrados_na_ans():
     ja_registrados = set()
     try:
-        r = requests.get(CADOP_URL, timeout=60)
+        r = requests.get(CADOP_URL, timeout=60, headers=HEADERS)
         r.raise_for_status()
         texto = r.content.decode("latin-1", errors="ignore")
         leitor = csv.reader(io.StringIO(texto), delimiter=";")
@@ -229,7 +240,7 @@ def cnpjs_ja_registrados_na_ans():
         print(f"[aviso] nao consegui baixar o CADOP agora ({e}) -- seguindo sem esse filtro.")
     if ADMINISTRADORAS_URL:
         try:
-            r = requests.get(ADMINISTRADORAS_URL, timeout=60)
+            r = requests.get(ADMINISTRADORAS_URL, timeout=60, headers=HEADERS)
             r.raise_for_status()
             # TODO: ajustar o parsing conforme o formato real do arquivo
             # quando a URL de download for confirmada.
