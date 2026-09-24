@@ -346,4 +346,31 @@ def main():
 
     print("\n[1/5] Filtrando Estabelecimentos pelo CNAE 6550-2/00 ...")
     candidatos = filtrar_estabelecimentos(pasta_mes, tmp_dir)
-    print(f"  {len(candid
+    print(f"  {len(candidatos)} CNPJs candidatos antes das exclusoes.")
+
+    print("\n[2/5] Completando com razao social e capital (Empresas) ...")
+    completar_com_empresas(candidatos, pasta_mes, tmp_dir)
+
+    print("\n[3/5] Puxando socios (QSA) ...")
+    completar_com_socios(candidatos, pasta_mes, tmp_dir)
+
+    print("\n[4/5] Removendo quem ja esta registrado na ANS (CADOP/administradoras) ...")
+    ja_registrados = cnpjs_ja_registrados_na_ans()
+    candidatos = {k: v for k, v in candidatos.items() if v["cnpj"] not in ja_registrados}
+    print(f"  {len(candidatos)} restantes depois da exclusao.")
+
+    print("\n[5/5] Removendo quem ja apareceu em meses anteriores ...")
+    ja_vistos = carregar_cache()
+    novos = {k: v for k, v in candidatos.items() if v["cnpj"] not in ja_vistos}
+    print(f"  {len(novos)} CNPJs realmente novos neste mes.")
+
+    caminho_saida = gravar_saida(novos, pasta_mes)
+    atualizar_cache({v["cnpj"] for v in novos.values()})
+
+    print(f"\nPronto. Lista final: {caminho_saida}")
+    print("Entregue esse CSV ao Claude Project para a Parte B da rotina")
+    print("(cruzamento de socios, elo em comum, qualificacao e redacao).")
+
+
+if __name__ == "__main__":
+    main()
