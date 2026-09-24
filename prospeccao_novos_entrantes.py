@@ -32,7 +32,20 @@ Antes de confiar 100% na automacao:
   3. Confira se o layout de colunas (numero e ordem dos campos) ainda bate
      com o documentado -- a Receita já mudou esse layout no passado.
 
-Requisitos: Python 3.9+, biblioteca `requests` (pip install requests)
+Requisitos: Python 3.9+, bibliotecas `requests` e `curl_cffi`
+(pip install requests curl_cffi).
+
+NOVO DIAGNOSTICO (setembro/2026): mesmo apontando para a URL nova e correta
+(SERPRO+/Nextcloud), o download continuava falhando de dentro do GitHub
+Actions com o erro "RemoteDisconnected" -- a conexao e derrubada
+imediatamente, sem nenhuma resposta HTTP. Isso e a marca registrada de um
+firewall/WAF que bloqueia pela "impressao digital" da conexao segura (TLS),
+nao pelo cabecalho User-Agent -- por isso trocar o User-Agent nao resolveu.
+Servidores do governo costumam bloquear assim conexoes vindas de bibliotecas
+como `requests`/Python, mas deixam passar navegadores de verdade. A
+biblioteca `curl_cffi` resolve isso "imitando" a conexao de um navegador
+Chrome de verdade. Por isso o script agora tenta usar `curl_cffi` quando
+disponivel (e cai de volta para `requests` normal se nao estiver instalada).
 """
 
 import csv
@@ -43,7 +56,12 @@ import argparse
 import datetime
 from pathlib import Path
 
-import requests
+try:
+    from curl_cffi import requests  # imita a "impressao digital" de um navegador
+    _USANDO_CURL_CFFI = True
+except ImportError:
+    import requests
+    _USANDO_CURL_CFFI = False
 
 # ---------------------------------------------------------------------------
 # Configuracao
@@ -95,9 +113,12 @@ def mes_referencia(hoje=None):
 
 def baixar(url, destino, tentativas=3):
     destino.parent.mkdir(parents=True, exist_ok=True)
+    kwargs = dict(stream=True, timeout=60, headers=HEADERS)
+    if _USANDO_CURL_CFFI:
+        kwargs["impersonate"] = "chrome110"  # imita o "aperto de mao" TLS de um Chrome real
     for tentativa in range(1, tentativas + 1):
         try:
-            with requests.get(url, stream=True, timeout=60, headers=HEADERS) as r:
+            with requests.get(url, **kwargs) as r:
                 if r.status_code == 404:
                     return False
                 r.raise_for_status()
@@ -113,7 +134,7 @@ def baixar(url, destino, tentativas=3):
                 destino.unlink(missing_ok=True)
                 return False
             return True
-        except requests.RequestException as e:
+        except Exception as e:
             print(f"  [aviso] falha ao baixar {url}: {e} (tentativa {tentativa}/{tentativas})")
     return False
 
@@ -239,8 +260,11 @@ def completar_com_socios(candidatos, pasta_mes, tmp_dir):
 
 def cnpjs_ja_registrados_na_ans():
     ja_registrados = set()
+    kwargs = dict(timeout=60, headers=HEADERS)
+    if _USANDO_CURL_CFFI:
+        kwargs["impersonate"] = "chrome110"
     try:
-        r = requests.get(CADOP_URL, timeout=60, headers=HEADERS)
+        r = requests.get(CADOP_URL, **kwargs)
         r.raise_for_status()
         texto = r.content.decode("latin-1", errors="ignore")
         leitor = csv.reader(io.StringIO(texto), delimiter=";")
@@ -254,15 +278,15 @@ def cnpjs_ja_registrados_na_ans():
         for linha in leitor:
             if col_cnpj is not None and col_cnpj < len(linha):
                 ja_registrados.add(re.sub(r"\D", "", linha[col_cnpj]))
-    except requests.RequestException as e:
+    except Exception as e:
         print(f"[aviso] nao consegui baixar o CADOP agora ({e}) -- seguindo sem esse filtro.")
     if ADMINISTRADORAS_URL:
         try:
-            r = requests.get(ADMINISTRADORAS_URL, timeout=60, headers=HEADERS)
+            r = requests.get(ADMINISTRADORAS_URL, **kwargs)
             r.raise_for_status()
             # TODO: ajustar o parsing conforme o formato real do arquivo
             # quando a URL de download for confirmada.
-        except requests.RequestException as e:
+        except Exception as e:
             print(f"[aviso] nao consegui baixar a lista de administradoras ({e}).")
     return ja_registrados
 
@@ -322,31 +346,4 @@ def main():
 
     print("\n[1/5] Filtrando Estabelecimentos pelo CNAE 6550-2/00 ...")
     candidatos = filtrar_estabelecimentos(pasta_mes, tmp_dir)
-    print(f"  {len(candidatos)} CNPJs candidatos antes das exclusoes.")
-
-    print("\n[2/5] Completando com razao social e capital (Empresas) ...")
-    completar_com_empresas(candidatos, pasta_mes, tmp_dir)
-
-    print("\n[3/5] Puxando socios (QSA) ...")
-    completar_com_socios(candidatos, pasta_mes, tmp_dir)
-
-    print("\n[4/5] Removendo quem ja esta registrado na ANS (CADOP/administradoras) ...")
-    ja_registrados = cnpjs_ja_registrados_na_ans()
-    candidatos = {k: v for k, v in candidatos.items() if v["cnpj"] not in ja_registrados}
-    print(f"  {len(candidatos)} restantes depois da exclusao.")
-
-    print("\n[5/5] Removendo quem ja apareceu em meses anteriores ...")
-    ja_vistos = carregar_cache()
-    novos = {k: v for k, v in candidatos.items() if v["cnpj"] not in ja_vistos}
-    print(f"  {len(novos)} CNPJs realmente novos neste mes.")
-
-    caminho_saida = gravar_saida(novos, pasta_mes)
-    atualizar_cache({v["cnpj"] for v in novos.values()})
-
-    print(f"\nPronto. Lista final: {caminho_saida}")
-    print("Entregue esse CSV ao Claude Project para a Parte B da rotina")
-    print("(cruzamento de socios, elo em comum, qualificacao e redacao).")
-
-
-if __name__ == "__main__":
-    main()
+    print(f"  {len(candid
