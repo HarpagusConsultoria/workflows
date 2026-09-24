@@ -1,3 +1,6 @@
+# Salve este arquivo no repositório GitHub em: .github/workflows/prospeccao-novos-entrantes.yml
+# Junto com prospeccao_novos_entrantes.py na raiz do repositório.
+
 name: Prospeccao Novos Entrantes
 
 on:
@@ -20,7 +23,7 @@ jobs:
           python-version: '3.11'
 
       - name: Instalar dependencias
-        run: pip install requests
+        run: pip install requests curl_cffi
 
       - name: Rodar prospeccao
         run: python prospeccao_novos_entrantes.py
